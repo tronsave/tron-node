@@ -1,0 +1,81 @@
+# TRON FullNode + Kafka event plugin.
+# Usage:  docker compose up -d --build
+# Tune ports and options via .env.
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: kafka
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:${KAFKA_INTERNAL_PORT:-19092},EXTERNAL://0.0.0.0:${KAFKA_PORT:-9092},CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:${KAFKA_INTERNAL_PORT:-19092},EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_MS: ${KAFKA_LOG_RETENTION_MS:-604800000}
+      CLUSTER_ID: docker-java-tron-kafka-01
+    volumes:
+      - ${KAFKA_DATA_PATH:-./data/kafka}:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:${KAFKA_INTERNAL_PORT:-19092} > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  tron:
+    build:
+      context: .
+      args:
+        NETWORK: ${NETWORK:-nile}
+        JAVA_TRON_VERSION: ${JAVA_TRON_VERSION:-GreatVoyage-Nile-v4.8.2-PQ1-build1}
+    image: docker-java-tron:local
+    container_name: tron-node
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 5m
+    mem_limit: ${MEM_LIMIT:-32g}
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    ports:
+      - "${HTTP_PORT:-8090}:${HTTP_PORT:-8090}"
+      - "${JSONRPC_PORT:-8545}:${JSONRPC_PORT:-8545}"
+      - "${GRPC_PORT:-50051}:${GRPC_PORT:-50051}"
+      - "${P2P_PORT:-18888}:${P2P_PORT:-18888}"
+      - "${P2P_PORT:-18888}:${P2P_PORT:-18888}/udp"
+    environment:
+      NETWORK: ${NETWORK:-nile}
+      JVM_HEAP_GB: ${JVM_HEAP_GB:-24}
+      HTTP_PORT: ${HTTP_PORT:-8090}
+      GRPC_PORT: ${GRPC_PORT:-50051}
+      JSONRPC_PORT: ${JSONRPC_PORT:-8545}
+      P2P_PORT: ${P2P_PORT:-18888}
+      EVENT_PLUGIN_ENABLED: ${EVENT_PLUGIN_ENABLED:-true}
+      KAFKA_SERVER: kafka:${KAFKA_INTERNAL_PORT:-19092}
+      EVENT_START_SYNC_BLOCK_NUM: ${EVENT_START_SYNC_BLOCK_NUM:-0}
+      LITE_NODE: ${LITE_NODE:-false}
+      LITE_OPEN_HISTORY: ${LITE_OPEN_HISTORY:-false}
+    volumes:
+      - ${TRON_DATA_PATH:-./data/tron}:/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -X POST http://localhost:${HTTP_PORT:-8090}/wallet/getnowblock > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 5m

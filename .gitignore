@@ -1,0 +1,9 @@
+# Local env (machine-specific paths, secrets) — copy from .env.example
+.env
+
+# Bind-mounted data directories
+data/
+
+# OS / editor
+.DS_Store
+**/.DS_Store
