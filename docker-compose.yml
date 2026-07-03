@@ -5,7 +5,7 @@
 services:
   kafka:
     image: apache/kafka:3.9.1
-    container_name: kafka
+    container_name: ${KAFKA_CONTAINER_NAME:-kafka}
     restart: unless-stopped
     ports:
       - "${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}"
@@ -41,7 +41,7 @@ services:
         NETWORK: ${NETWORK:-nile}
         JAVA_TRON_VERSION: ${JAVA_TRON_VERSION:-GreatVoyage-Nile-v4.8.2-PQ1-build1}
     image: docker-java-tron:local
-    container_name: tron-node
+    container_name: ${TRON_CONTAINER_NAME:-tron-node}
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 5m
