@@ -101,6 +101,18 @@ Then `docker compose up -d` remaps ports automatically.
 |---|---|---|
 | `EVENT_PLUGIN_ENABLED` | `true` | Sets `event.subscribe.enable` (4.8.2 replaces deprecated `--es`) |
 | `EVENT_START_SYNC_BLOCK_NUM` | `0` | >0 = sync historical events from block height (framework V2.0) |
+| `EVENT_CONTRACT_ADDRESS` | _(empty)_ | Comma-separated base58 contract addresses to filter on. Empty = all contracts |
+| `EVENT_CONTRACT_TOPIC` | _(empty)_ | Comma-separated topic hashes to filter on. Empty = all topics |
+
+All four triggers (`block`, `transaction`, `contractevent`, `contractlog`) are **enabled by default**. `vm.supportConstant = true` is set so constant/view (`triggerConstantContract`) calls work on the FullNode.
+
+Both filters accept comma-separated lists and default to `[""]` (no filter → subscribe to everything):
+
+```env
+# only stream events from two contracts, any topic
+EVENT_CONTRACT_ADDRESS=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t,TXpw8XeWYeTUd4quDskoUqeQPowRh4jY65
+EVENT_CONTRACT_TOPIC=
+```
 
 ### Lite FullNode
 
