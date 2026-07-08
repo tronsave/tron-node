@@ -15,6 +15,10 @@ KAFKA_SERVER="${KAFKA_SERVER:-kafka:19092}"
 EVENT_PLUGIN_ENABLED="${EVENT_PLUGIN_ENABLED:-true}"
 EVENT_START_SYNC_BLOCK_NUM="${EVENT_START_SYNC_BLOCK_NUM:-0}"
 
+# Event filters: comma-separated lists; empty = [""] (no filter, subscribe to everything).
+EVENT_CONTRACT_ADDRESS="${EVENT_CONTRACT_ADDRESS:-}"
+EVENT_CONTRACT_TOPIC="${EVENT_CONTRACT_TOPIC:-}"
+
 LITE_NODE="${LITE_NODE:-false}"
 LITE_OPEN_HISTORY="${LITE_OPEN_HISTORY:-false}"
 
@@ -33,6 +37,25 @@ else
   LITE_OPEN_HISTORY_VALUE="false"
 fi
 
+# Build a HOCON string array from a comma-separated list.
+# Empty input -> [""] which java-tron treats as "match everything" (no filter).
+build_hocon_list() {
+  local csv="$1" out="" item
+  [ -z "$csv" ] && { echo '[""]'; return; }
+  IFS=',' read -ra _items <<< "$csv"
+  for item in "${_items[@]}"; do
+    # trim leading/trailing whitespace
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    [ -z "$item" ] && continue
+    if [ -z "$out" ]; then out="\"$item\""; else out="${out},\"$item\""; fi
+  done
+  if [ -z "$out" ]; then echo '[""]'; else echo "[${out}]"; fi
+}
+
+EVENT_CONTRACT_ADDRESS_LIST="$(build_hocon_list "$EVENT_CONTRACT_ADDRESS")"
+EVENT_CONTRACT_TOPIC_LIST="$(build_hocon_list "$EVENT_CONTRACT_TOPIC")"
+
 CONFIG=/data/config.conf
 cp "/etc/tron/${NETWORK}.conf" "$CONFIG"
 
@@ -45,6 +68,8 @@ sed -i \
   -e "s|__KAFKA_SERVER__|${KAFKA_SERVER}|g" \
   -e "s|__EVENT_ENABLE__|${EVENT_ENABLE}|g" \
   -e "s|__EVENT_START_SYNC_BLOCK_NUM__|${EVENT_START_SYNC_BLOCK_NUM}|g" \
+  -e "s|__EVENT_CONTRACT_ADDRESS__|${EVENT_CONTRACT_ADDRESS_LIST}|g" \
+  -e "s|__EVENT_CONTRACT_TOPIC__|${EVENT_CONTRACT_TOPIC_LIST}|g" \
   -e "s|__LITE_OPEN_HISTORY__|${LITE_OPEN_HISTORY_VALUE}|g" \
   "$CONFIG"
 
@@ -70,6 +95,7 @@ if [ -n "${EXTRA_ARGS:-}" ]; then
 fi
 
 echo "Starting java-tron ${NETWORK}: heap=${JVM_HEAP_GB}g http=${HTTP_PORT} grpc=${GRPC_PORT} kafka=${KAFKA_SERVER} event=${EVENT_ENABLE} lite=${LITE_NODE}"
+echo "Event filters: contractAddress=${EVENT_CONTRACT_ADDRESS_LIST} contractTopic=${EVENT_CONTRACT_TOPIC_LIST}"
 if [ "$LITE_NODE" = "true" ]; then
   echo "Lite FullNode: mount a lite snapshot under /data before first start (https://developers.tron.network/docs/litefullnode)."
 fi
