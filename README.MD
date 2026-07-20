@@ -67,7 +67,7 @@ Host Kafka clients connect to `localhost:9092` (or your custom `KAFKA_PORT`).
 | `TRON_DATA_PATH` | `./data/tron` | Host path → `/data` (blockchain data) |
 | `KAFKA_DATA_PATH` | `./data/kafka` | Host path → Kafka logs |
 | `NETWORK` | `nile` | `nile` or `mainnet` |
-| `JAVA_TRON_VERSION` | `GreatVoyage-Nile-v4.8.2-PQ1-build1` | Release tag downloaded at build time |
+| `JAVA_TRON_VERSION` | `GreatVoyage-Nile-v4.8.2-PQ1-build1` | Release tag downloaded at build time (Mainnet: `GreatVoyage-v4.8.2`) |
 | `JVM_HEAP_GB` | `24` | Max JVM heap (~40% of host RAM recommended) |
 | `MEM_LIMIT` | `32g` | Container memory limit (≥ heap + 8G) |
 
@@ -134,7 +134,7 @@ To create a lite snapshot from a FullNode, use the [Toolkit `db lite`](https://d
 
 ```env
 NETWORK=mainnet
-JAVA_TRON_VERSION=GreatVoyage-v4.8.1.1
+JAVA_TRON_VERSION=GreatVoyage-v4.8.2
 ```
 
 ## Config philosophy (java-tron 4.8.2)
