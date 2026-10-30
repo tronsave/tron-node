@@ -4,7 +4,7 @@
 
 services:
   kafka:
-    image: apache/kafka:3.9.1
+    image: apache/kafka:3.9.2
     container_name: ${KAFKA_CONTAINER_NAME:-kafka}
     restart: unless-stopped
     ports:
