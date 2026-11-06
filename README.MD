@@ -93,6 +93,24 @@ gpg --export --armor 07B23298AEA4E006BD9A42DE785FB96D2C7C3CA5 > keys/tron-releas
 
 Build args for special cases: `FULLNODE_SHA256=skip` (no pin, signature still checked), `VERIFY_GPG=false` (custom `FULLNODE_JAR_URL` without a `.sig`), `JDK_URL` (your own mirror of the JDK tarball), `TOOLKIT_VERSION=` (leave Toolkit out).
 
+### Kafka data location (upgrading from an older version of this repo)
+
+Older versions of `docker-compose.yml` did not set `KAFKA_LOG_DIRS`, so the broker wrote to `/tmp/kafka-logs` **inside the container** instead of `KAFKA_DATA_PATH`. Topics and consumer offsets were therefore lost whenever the container was recreated. Check where your broker keeps its data:
+
+```bash
+docker exec kafka sh -c 'ls /var/lib/kafka/data | wc -l; ls /tmp/kafka-logs 2>/dev/null | wc -l'
+```
+
+If the first number is `0` and the second is not, move the data out **before** the first `docker compose up` with this version (which recreates the container):
+
+```bash
+docker compose stop tron kafka
+sudo docker cp kafka:/tmp/kafka-logs/. "$KAFKA_DATA_PATH"/   # the path from your .env; must be empty before the copy
+docker compose up -d --build
+```
+
+The copy keeps the cluster id (`meta.properties`), the topics and the committed consumer offsets.
+
 ## Configuration (.env)
 
 ### Network & memory
@@ -271,7 +289,35 @@ The `data/` directory is gitignored — do not commit blockchain or Kafka data t
 ## Stopping safely
 
 ```bash
-docker compose stop tron   # SIGTERM, 5 min grace for LevelDB
+docker compose stop        # node first, then Kafka
+docker compose stop tron   # node only
 ```
 
-Never `kill -9` the node.
+`java` runs as PID 1 in the container, so Docker's SIGTERM reaches the node directly — the same
+`kill -15` that java-tron's own `start.sh --stop` sends. The node then stops its API and P2P
+services, closes the event plugin and closes every database. Docker waits up to 5 minutes for
+this (`stop_grace_period`; upstream's script waits 60 s) before it falls back to SIGKILL. Kafka
+gets 2 minutes. `docker compose up -d`, `restart` and `down` use the same grace periods.
+
+Check that a stop was clean:
+
+```bash
+docker inspect -f '{{.State.ExitCode}}' tron-node   # 143 = exited on SIGTERM; 137 = killed
+tail -n 1 "$TRON_DATA_PATH"/logs/tron.log           # ******** close end ********
+```
+
+Never `kill -9` / `docker kill` the node, and stop the stack yourself before rebooting the
+host — do not count on the host's shutdown to wait for the full grace period. A container that
+hits `MEM_LIMIT` is also killed without warning, so keep headroom above `JVM_HEAP_GB`.
+
+### Events around a restart
+
+- **Every restart replays a few blocks.** java-tron keeps blocks that are not yet solidified in
+  memory, so after a restart — even a clean one — it processes the last ~20 blocks again and
+  publishes their events a second time. Consumers must be idempotent.
+- **An unclean stop can lose events.** Events that had not reached Kafka when the process was
+  killed are not published again for blocks that were already written to disk. To backfill,
+  set `EVENT_START_SYNC_BLOCK_NUM` to the first missing block and run `docker compose up -d tron`:
+  the node re-publishes everything from that block up to the latest solidified block, then
+  continues live. Set it back to `0` afterwards, otherwise every restart replays from that
+  block again.
