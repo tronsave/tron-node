@@ -2,13 +2,26 @@
 # Usage:  docker compose up -d --build
 # Tune ports and options via .env.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-50m}
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
   kafka:
-    image: apache/kafka:3.9.2
+    image: apache/kafka:${KAFKA_VERSION:-3.9.2}
     container_name: ${KAFKA_CONTAINER_NAME:-kafka}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
     ports:
-      - "${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}"
+      # The EXTERNAL listener is PLAINTEXT without authentication: bind it to a private
+      # address (KAFKA_BIND_IP) and/or firewall it. Never expose it to the internet.
+      - "${KAFKA_BIND_IP:-0.0.0.0}:${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -24,6 +37,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_MS: ${KAFKA_LOG_RETENTION_MS:-604800000}
+      # Size cap per partition (bytes); -1 = time-based retention only.
+      KAFKA_LOG_RETENTION_BYTES: ${KAFKA_LOG_RETENTION_BYTES:--1}
       CLUSTER_ID: docker-java-tron-kafka-01
     volumes:
       - ${KAFKA_DATA_PATH:-./data/kafka}:/var/lib/kafka/data
@@ -41,21 +56,38 @@ services:
       context: .
       args:
         NETWORK: ${NETWORK:-nile}
-        JAVA_TRON_VERSION: ${JAVA_TRON_VERSION:-GreatVoyage-Nile-v4.8.2-PQ1-build1}
-    image: docker-java-tron:local
+        JAVA_TRON_VERSION: ${JAVA_TRON_VERSION:-GreatVoyage-Nile-v4.8.2.4-PQ1-build1}
+        FULLNODE_SHA256: ${FULLNODE_SHA256:-b62fb08e647b1336749a2da1bfa37447377e26c80fd85540fabea5b2de23dc41}
+    # Tagged with the release so the previous image stays available for a quick rollback.
+    image: docker-java-tron:${JAVA_TRON_VERSION:-GreatVoyage-Nile-v4.8.2.4-PQ1-build1}
     container_name: ${TRON_CONTAINER_NAME:-tron-node}
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 5m
     mem_limit: ${MEM_LIMIT:-32g}
+    # The entrypoint starts as root only to fix ownership of the data directory, then drops to
+    # the unprivileged "tron" user; these are the only capabilities that step needs.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    logging: *default-logging
     ulimits:
       nofile:
         soft: 65535
         hard: 65535
     ports:
-      - "${HTTP_PORT:-8090}:${HTTP_PORT:-8090}"
-      - "${JSONRPC_PORT:-8545}:${JSONRPC_PORT:-8545}"
-      - "${GRPC_PORT:-50051}:${GRPC_PORT:-50051}"
+      # API ports have no authentication: set API_BIND_IP to 127.0.0.1 or a private address
+      # unless a firewall already restricts them. P2P must stay reachable from the internet.
+      - "${API_BIND_IP:-0.0.0.0}:${HTTP_PORT:-8090}:${HTTP_PORT:-8090}"
+      - "${API_BIND_IP:-0.0.0.0}:${JSONRPC_PORT:-8545}:${JSONRPC_PORT:-8545}"
+      - "${API_BIND_IP:-0.0.0.0}:${GRPC_PORT:-50051}:${GRPC_PORT:-50051}"
+      - "${API_BIND_IP:-0.0.0.0}:${PROMETHEUS_PORT:-9527}:${PROMETHEUS_PORT:-9527}"
       - "${P2P_PORT:-18888}:${P2P_PORT:-18888}"
       - "${P2P_PORT:-18888}:${P2P_PORT:-18888}/udp"
     environment:
@@ -64,19 +96,29 @@ services:
       HTTP_PORT: ${HTTP_PORT:-8090}
       GRPC_PORT: ${GRPC_PORT:-50051}
       JSONRPC_PORT: ${JSONRPC_PORT:-8545}
+      JSONRPC_ENABLED: ${JSONRPC_ENABLED:-true}
       P2P_PORT: ${P2P_PORT:-18888}
+      PROMETHEUS_ENABLED: ${PROMETHEUS_ENABLED:-true}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9527}
       EVENT_PLUGIN_ENABLED: ${EVENT_PLUGIN_ENABLED:-true}
       KAFKA_SERVER: kafka:${KAFKA_INTERNAL_PORT:-19092}
       EVENT_START_SYNC_BLOCK_NUM: ${EVENT_START_SYNC_BLOCK_NUM:-0}
+      EVENT_TOPICS: ${EVENT_TOPICS:-block,transaction,contractevent,contractlog}
+      EVENT_CONTRACT_ADDRESS: ${EVENT_CONTRACT_ADDRESS:-}
+      EVENT_CONTRACT_TOPIC: ${EVENT_CONTRACT_TOPIC:-}
       LITE_NODE: ${LITE_NODE:-false}
       LITE_OPEN_HISTORY: ${LITE_OPEN_HISTORY:-false}
+      CONSTANT_CALL_TIMEOUT_MS: ${CONSTANT_CALL_TIMEOUT_MS:-}
+      HEALTH_MAX_LAG_SEC: ${HEALTH_MAX_LAG_SEC:-300}
+      EXTRA_ARGS: ${EXTRA_ARGS:-}
     volumes:
       - ${TRON_DATA_PATH:-./data/tron}:/data
     depends_on:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -X POST http://localhost:${HTTP_PORT:-8090}/wallet/getnowblock > /dev/null"]
+      # Healthy = HTTP API answers and the head block is at most HEALTH_MAX_LAG_SEC old.
+      test: ["CMD", "healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 10

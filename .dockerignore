@@ -1,6 +1,9 @@
 .git
 .github
 .env
+.env.*
+*.env
+data/
 LICENSE
 README.MD
 **/.DS_Store

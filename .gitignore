@@ -1,5 +1,9 @@
 # Local env (machine-specific paths, secrets) — copy from .env.example
 .env
+.env.*
+*.env
+!.env.example
+!*.env.example
 
 # Bind-mounted data directories
 data/
