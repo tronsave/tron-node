@@ -9,9 +9,32 @@ x-logging: &default-logging
     max-file: "${LOG_MAX_FILE:-5}"
 
 services:
+  # The broker runs as an unprivileged user, but a bind-mounted data directory is created by
+  # Docker as root (and so is anything copied into it with sudo). This one-shot container hands
+  # the directory over before the broker starts; it exits immediately.
+  kafka-init:
+    image: apache/kafka:${KAFKA_VERSION:-3.9.2}
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown -R appuser:appuser /var/lib/kafka/data"]
+    restart: "no"
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    logging: *default-logging
+    volumes:
+      - ${KAFKA_DATA_PATH:-./data/kafka}:/var/lib/kafka/data
+
   kafka:
     image: apache/kafka:${KAFKA_VERSION:-3.9.2}
     container_name: ${KAFKA_CONTAINER_NAME:-kafka}
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Docker's default is 10 s; give the broker time to flush and close its logs cleanly.
     stop_grace_period: 2m
