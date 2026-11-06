@@ -13,6 +13,8 @@ services:
     image: apache/kafka:${KAFKA_VERSION:-3.9.2}
     container_name: ${KAFKA_CONTAINER_NAME:-kafka}
     restart: unless-stopped
+    # Docker's default is 10 s; give the broker time to flush and close its logs cleanly.
+    stop_grace_period: 2m
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -36,6 +38,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Without this the image writes to /tmp/kafka-logs inside the container and all topics and
+      # consumer offsets are lost whenever the container is recreated.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_LOG_RETENTION_MS: ${KAFKA_LOG_RETENTION_MS:-604800000}
       # Size cap per partition (bytes); -1 = time-based retention only.
       KAFKA_LOG_RETENTION_BYTES: ${KAFKA_LOG_RETENTION_BYTES:--1}
@@ -63,6 +68,8 @@ services:
     container_name: ${TRON_CONTAINER_NAME:-tron-node}
     platform: linux/amd64
     restart: unless-stopped
+    # java runs as PID 1, so "docker stop" delivers SIGTERM (java-tron's documented kill -15)
+    # straight to the node; SIGKILL follows only if it has not exited after this long.
     stop_grace_period: 5m
     mem_limit: ${MEM_LIMIT:-32g}
     # The entrypoint starts as root only to fix ownership of the data directory, then drops to
