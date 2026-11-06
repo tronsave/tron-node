@@ -104,12 +104,16 @@ docker exec kafka sh -c 'ls /var/lib/kafka/data | wc -l; ls /tmp/kafka-logs 2>/d
 If the first number is `0` and the second is not, move the data out **before** the first `docker compose up` with this version (which recreates the container):
 
 ```bash
+docker exec kafka du -sh /tmp/kafka-logs                     # needs this much free space at KAFKA_DATA_PATH
 docker compose stop tron kafka
 sudo docker cp kafka:/tmp/kafka-logs/. "$KAFKA_DATA_PATH"/   # the path from your .env; must be empty before the copy
+sudo ls "$KAFKA_DATA_PATH" | wc -l                           # same count as the second number above; meta.properties is there
 docker compose up -d --build
 ```
 
-The copy keeps the cluster id (`meta.properties`), the topics and the committed consumer offsets.
+Do not run `docker compose up` before the copy has finished and the count matches: it replaces the old container, and the data inside it goes with it.
+
+The copy keeps the cluster id (`meta.properties`), the topics and the committed consumer offsets. It is owned by root, which the broker cannot write to; the `kafka-init` service in `docker-compose.yml` hands the directory to the broker's user on every `docker compose up`, so no manual `chown` is needed. If you start the broker some other way and it fails with `AccessDeniedException`, run `sudo chown -R 1000:1000 "$KAFKA_DATA_PATH"`.
 
 ## Configuration (.env)
 
